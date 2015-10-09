@@ -13,12 +13,29 @@ namespace RSG
     /// </summary>
     public class RSGLogEnricher : ILogEventEnricher
     {
+        /// <summary>
+        /// Interface that configures the app.
+        /// </summary>
+        private IAppConfigurator appConfigurator;
+
+        public RSGLogEnricher(IAppConfigurator appConfigurator)
+        {
+            this.appConfigurator = appConfigurator;
+        }
+
         public void Enrich(LogEvent logEvent, ILogEventPropertyFactory propertyFactory)
         {
             logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("UserName", Environment.UserName));
             logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("MachineName", Environment.MachineName));
             logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("AppInstanceID", App.AppInstanceID));
-
+            logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("DeviceID", App.DeviceID));
+            if (!string.IsNullOrEmpty(App.DeviceName))
+            {
+                logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("DeviceName", App.DeviceName));
+            }
+            
+            logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("AppMajorVersion", appConfigurator.MajorVersionNumber));
+            logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("AppMinorVersion", appConfigurator.MinorVersionNumber));
         }
     }
 }
