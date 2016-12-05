@@ -11,18 +11,9 @@ namespace RSG
     /// <summary>
     /// Adds extra details to log messages.
     /// </summary>
+    [LogEnricher]
     public class RSGLogEnricher : ILogEventEnricher
     {
-        /// <summary>
-        /// Interface that configures the app.
-        /// </summary>
-        private IAppConfigurator appConfigurator;
-
-        public RSGLogEnricher(IAppConfigurator appConfigurator)
-        {
-            this.appConfigurator = appConfigurator;
-        }
-
         public void Enrich(LogEvent logEvent, ILogEventPropertyFactory propertyFactory)
         {
             logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("UserName", Environment.UserName));
@@ -34,8 +25,9 @@ namespace RSG
                 logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("DeviceName", App.DeviceName));
             }
             
-            logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("AppMajorVersion", appConfigurator.MajorVersionNumber));
-            logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("AppMinorVersion", appConfigurator.MinorVersionNumber));
+            // Ash: adding version number to logging shouold now be project specific.
+            //logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("AppMajorVersion", appConfigurator.MajorVersionNumber));
+            //logEvent.AddPropertyIfAbsent(propertyFactory.CreateProperty("AppMinorVersion", appConfigurator.MinorVersionNumber));
         }
     }
 }

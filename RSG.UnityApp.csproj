@@ -74,7 +74,8 @@
     <Compile Include="AppHub.cs" />
     <Compile Include="DebugLogger.cs" />
     <Compile Include="Dispatcher.cs" />
-    <Compile Include="IAppConfigurator.cs" />
+    <Compile Include="LogConfig.cs" />
+    <Compile Include="LogEnricherAttribute.cs" />
     <Compile Include="SettingsLoader.cs" />
     <Compile Include="FormattedException.cs" />
     <Compile Include="GameObjectCreator.cs" />

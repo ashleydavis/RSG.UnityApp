@@ -39,6 +39,11 @@ namespace RSG
         IPromiseTimer PromiseTimer { get; }
 
         /// <summary>
+        /// Global singleton manager.
+        /// </summary>
+        ISingletonManager SingletonManager { get; }
+
+        /// <summary>
         /// The name of the device assigned by the application.
         /// </summary>
         void SetDeviceName(string newDeviceName);
@@ -74,6 +79,22 @@ namespace RSG
                 return Path.Combine(Application.persistentDataPath, "DeviceInfo.json");
             }
         }
+
+        /// <summary>
+        /// The path to where log configuration is stored.
+        /// </summary>
+        private string LogConfigFilePath
+        {
+            get
+            {
+#if UNITY_ANDROID
+                return Path.Combine(Application.persistentDataPath, "LogInfo.json");
+#else
+                return Path.Combine(Application.dataPath, "LogInfo.json");
+#endif
+            }
+        }
+
 
         /// <summary>
         /// Path where the 'running file' is saved. This is a file that is present when the app is running and
@@ -128,12 +149,13 @@ namespace RSG
         {
             InitDeviceId();
 
-            var factoryLogger = new DebugLogger();
-
             var reflection = new Reflection();
-            var factory = new Factory("App", factoryLogger, reflection);
-            factory.Dep<RSG.Utils.ILogger>(factoryLogger);
-            var dispatcher = new Dispatcher(factoryLogger);
+            var logger = new SerilogLogger(LoadLogConfig(), reflection);
+
+            var factory = new Factory("App", logger, reflection);
+            factory.Dep<IApp>(this);
+            factory.Dep<RSG.Utils.ILogger>(logger);
+            var dispatcher = new Dispatcher(logger);
             this.Dispatcher = dispatcher;
             factory.Dep<IDispatcher>(dispatcher);
             factory.Dep<IDispatchQueue>(dispatcher);            
@@ -142,23 +164,34 @@ namespace RSG
             this.PromiseTimer = new PromiseTimer();
             factory.Dep<IPromiseTimer>(this.PromiseTimer);
 
-            var singletonManager = InitFactory(factoryLogger, factory, reflection);
+            this.SingletonManager = InitFactory(logger, factory, reflection);
 
             this.Factory = factory;
 
-            singletonManager.InstantiateSingletons(factory);
+            SingletonManager.InstantiateSingletons(factory);
 
             this.Logger = factory.ResolveDep<RSG.Utils.ILogger>();
 
             InitRunningFile();
 
-            singletonManager.Startup();
+            SingletonManager.Startup();
+
+            var taskManager = factory.ResolveDep<ITaskManager>();
+            SingletonManager.Singletons.ForType((IUpdatable u) => taskManager.RegisterUpdatable(u));
+            SingletonManager.Singletons.ForType((IRenderable r) => taskManager.RegisterRenderable(r));
+            SingletonManager.Singletons.ForType((IEndOfFrameUpdatable u) => taskManager.RegisterEndOfFrameUpdatable(u));
+            SingletonManager.Singletons.ForType((ILateUpdatable u) => taskManager.RegisterLateUpdatable(u));
 
             var appHub = InitAppHub();
             appHub.Shutdown = 
                 () =>
                 {
-                    singletonManager.Shutdown();
+                    SingletonManager.Shutdown();
+
+                    SingletonManager.Singletons.ForType((IUpdatable u) => taskManager.UnregisterUpdatable(u));
+                    SingletonManager.Singletons.ForType((IRenderable r) => taskManager.UnregisterRenderable(r));
+                    SingletonManager.Singletons.ForType((IEndOfFrameUpdatable u) => taskManager.UnregisterEndOfFrameUpdatable(u));
+                    SingletonManager.Singletons.ForType((ILateUpdatable u) => taskManager.UnregisterLateUpdatable(u));
 
                     DeleteRunningFile();
                 };
@@ -345,6 +378,34 @@ namespace RSG
         }
 
         /// <summary>
+        /// Load logger configuration from a file.
+        /// </summary>
+        private LogConfig LoadLogConfig()
+        {
+            //
+            // Load log configuration.
+            //
+            if (!File.Exists(LogConfigFilePath))
+            {
+                return new LogConfig();
+            }
+
+            Debug.Log("Loading log configuration file: " + LogConfigFilePath);
+
+            try
+            {
+                return JsonConvert.DeserializeObject<LogConfig>(File.ReadAllText(LogConfigFilePath));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("Failed to load log configuration file: " + LogConfigFilePath);
+                Debug.LogException(ex);
+
+                return new LogConfig();
+            }
+        }
+
+        /// <summary>
         /// Helper function to initalize the factory.
         /// </summary>
         private static SingletonManager InitFactory(RSG.Utils.ILogger logger, Factory factory, IReflection reflection)
@@ -418,5 +479,13 @@ namespace RSG
             private set;
         }
 
+        /// <summary>
+        /// Global singleton manager.
+        /// </summary>
+        public ISingletonManager SingletonManager
+        {
+            get;
+            private set;
+        }
     }
 }

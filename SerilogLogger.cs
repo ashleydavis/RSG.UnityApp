@@ -10,7 +10,6 @@ using UnityEngine;
 
 namespace RSG
 {
-    [Singleton(typeof(RSG.Utils.ILogger))]
     public class SerilogLogger : RSG.Utils.ILogger
     {
         /// <summary>
@@ -23,17 +22,32 @@ namespace RSG
         /// </summary>
         public bool EnableVerbose { get; set; }
 
-        public SerilogLogger(IAppConfigurator appConfigurator)
+        public SerilogLogger(LogConfig logConfig, IReflection reflection)
         {
-            Argument.NotNull(() => appConfigurator);
+            Argument.NotNull(() => logConfig);
+            Argument.NotNull(() => reflection);
+
+            this.EnableVerbose = logConfig.Verbose;
 
             CreateLogsDirectory();
 
-            var loggerConfig = new Serilog.LoggerConfiguration()
-                .WriteTo.Trace()
-                .Enrich.With(new RSGLogEnricher(appConfigurator));
+            var loggerConfig = new Serilog.LoggerConfiguration();
 
-            appConfigurator.ConfigureLog(loggerConfig);
+            if (this.EnableVerbose)
+            {
+                loggerConfig = loggerConfig.MinimumLevel.Verbose();
+            }
+
+            loggerConfig = loggerConfig.WriteTo.Trace();
+
+            var emptyTypeArray = new Type[0];
+            var emptyObjectArray = new object[0];
+
+            var logEnrichers = reflection.FindTypesMarkedByAttributes(LinqExts.FromItems(typeof(LogEnricherAttribute)));
+            loggerConfig = logEnrichers
+                .Select(logEnricherType => logEnricherType.GetConstructor(emptyTypeArray).Invoke(emptyObjectArray))
+                .Cast<Serilog.Core.ILogEventEnricher>()
+                .Aggregate(loggerConfig, (prevLoggerConfig, logEnricher) => prevLoggerConfig.Enrich.With(logEnricher));
 
             if (logsDirectoryStatus == LogsDirectoryStatus.Created)
             {
@@ -42,21 +56,20 @@ namespace RSG
                 loggerConfig.WriteTo.File(Path.Combine(LogsDirectoryPath, "Verbose.log"), LogEventLevel.Verbose);
             }
 
-            if (!string.IsNullOrEmpty(appConfigurator.LogPostUrl))
+            if (!string.IsNullOrEmpty(logConfig.LogPostUrl))
             {
-                Debug.Log("Sending log messages via HTTP to " + appConfigurator.LogPostUrl);
+                Debug.Log("Sending log messages via HTTP to " + logConfig.LogPostUrl);
 
-                loggerConfig.WriteTo.Sink(new SerilogHttpSink(appConfigurator.LogPostUrl));
+                loggerConfig.WriteTo.Sink(new SerilogHttpSink(logConfig.LogPostUrl));
             }
             else
             {
                 Debug.Log("Not sending log messages via HTTP");
             }
 
-            var reflection = new Reflection();
             foreach (var sinkType in reflection.FindTypesMarkedByAttributes(LinqExts.FromItems(typeof(SerilogSinkAttribute))))
             {
-                loggerConfig.WriteTo.Sink((Serilog.Core.ILogEventSink)sinkType.GetConstructor(new Type[0]).Invoke(new object[0]));
+                loggerConfig.WriteTo.Sink((Serilog.Core.ILogEventSink)sinkType.GetConstructor(emptyTypeArray).Invoke(emptyObjectArray));
             }
 
             this.serilog = loggerConfig.CreateLogger();
@@ -72,7 +85,16 @@ namespace RSG
                 LogInfo("Writing logs and reports to {LogsDirectoryPath}", LogsDirectoryPath);
             }
 
-            LogSystemInfo(appConfigurator);
+            if (this.EnableVerbose)
+            {
+                LogInfo("Verbose logging is enabled.");
+            }
+            else
+            {
+                LogInfo("Verbose logging is not enabled.");
+            }
+
+            LogSystemInfo();
 
             DeleteOldLogFiles();
 
@@ -218,11 +240,11 @@ namespace RSG
         /// <summary>
         /// Dump out system info.
         /// </summary>
-        private void LogSystemInfo(IAppConfigurator appConfigurator)
+        private void LogSystemInfo()
         {
             var systemReportsPath = Path.Combine(LogsDirectoryPath, SystemReportsPath);
             var logSystemInfo = new LogSystemInfo(this, systemReportsPath);
-            logSystemInfo.Output(appConfigurator);
+            logSystemInfo.Output();
         }
 
         /// <summary>
