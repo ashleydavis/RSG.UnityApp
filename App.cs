@@ -1,4 +1,4 @@
-﻿using RSG.Utils;
+using RSG.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -130,7 +130,10 @@ namespace RSG
                 return;
             }
 
-            Instance = new App();
+            var app = new App();
+            Instance = app;
+
+            app.InitSingletons();
         }
 
         /// <summary>
@@ -150,7 +153,8 @@ namespace RSG
             InitDeviceId();
 
             var reflection = new Reflection();
-            var logger = new SerilogLogger(LoadLogConfig(), reflection);
+            var logConfig = LoadLogConfig();
+            var logger = new SerilogLogger(logConfig, reflection);
 
             var factory = new Factory("App", logger, reflection);
             factory.Dep<IApp>(this);
@@ -158,32 +162,36 @@ namespace RSG
             var dispatcher = new Dispatcher(logger);
             this.Dispatcher = dispatcher;
             factory.Dep<IDispatcher>(dispatcher);
-            factory.Dep<IDispatchQueue>(dispatcher);            
+            factory.Dep<IDispatchQueue>(dispatcher);
             factory.Dep<ISceneQuery>(new SceneQuery());
             factory.Dep<ISceneTraversal>(new SceneTraversal());
             this.PromiseTimer = new PromiseTimer();
             factory.Dep<IPromiseTimer>(this.PromiseTimer);
 
-            this.SingletonManager = InitFactory(logger, factory, reflection);
+            var factoryLogger = new FactoryLogger(logger, logConfig.FactoryLogPath);
+            this.SingletonManager = InitFactory(factoryLogger, factory, reflection);
 
             this.Factory = factory;
-
-            SingletonManager.InstantiateSingletons(factory);
 
             this.Logger = factory.ResolveDep<RSG.Utils.ILogger>();
 
             InitRunningFile();
+        }
+
+        private void InitSingletons()
+        {
+            SingletonManager.InstantiateSingletons(Factory);
 
             SingletonManager.Startup();
 
-            var taskManager = factory.ResolveDep<ITaskManager>();
+            var taskManager = Factory.ResolveDep<ITaskManager>();
             SingletonManager.Singletons.ForType((IUpdatable u) => taskManager.RegisterUpdatable(u));
             SingletonManager.Singletons.ForType((IRenderable r) => taskManager.RegisterRenderable(r));
             SingletonManager.Singletons.ForType((IEndOfFrameUpdatable u) => taskManager.RegisterEndOfFrameUpdatable(u));
             SingletonManager.Singletons.ForType((ILateUpdatable u) => taskManager.RegisterLateUpdatable(u));
 
             var appHub = InitAppHub();
-            appHub.Shutdown = 
+            appHub.Shutdown =
                 () =>
                 {
                     SingletonManager.Shutdown();
@@ -408,14 +416,14 @@ namespace RSG
         /// <summary>
         /// Helper function to initalize the factory.
         /// </summary>
-        private static SingletonManager InitFactory(RSG.Utils.ILogger logger, Factory factory, IReflection reflection)
+        private static SingletonManager InitFactory(Utils.ILogger logger, Factory factory, IReflection reflection)
         {           
             //todo: all this code should merge into RSG.Factory.
             factory.AutoRegisterTypes();
 
-            var singletonManager = new SingletonManager(reflection, logger, factory);
+            var singletonManager = new SingletonManager(logger, factory);
 
-            factory.Dep<IReflection>(reflection);
+            factory.Dep(reflection);
             factory.AddDependencyProvider(singletonManager);
 
             var singletonScanner = new SingletonScanner(reflection, logger, singletonManager);
